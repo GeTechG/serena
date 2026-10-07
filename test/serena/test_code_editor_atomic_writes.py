@@ -176,9 +176,21 @@ class TestSourceFileSaveIsAtomic:
 
         assert stat.S_IMODE(os.stat(script).st_mode) == 0o755
 
-    def test_save_respects_the_configured_newline(self, tmp_path):
+    @pytest.mark.parametrize(("configured", "on_disk"), [("\n", b"\r\n"), ("\r\n", b"\n")])
+    def test_save_keeps_the_line_endings_the_file_has(self, tmp_path, configured, on_disk):
+        """An edit must not rewrite every line of a file whose line endings differ from the configured ones."""
         source = tmp_path / "module.py"
-        source.write_bytes(b"old\n")
+        source.write_bytes(b"old" + on_disk + b"older" + on_disk)
+
+        editor = self._editor(tmp_path, newline=configured)
+        with editor.edited_file_context("module.py") as edited:
+            edited.set_contents("a\nb\n")
+
+        assert source.read_bytes() == b"a" + on_disk + b"b" + on_disk
+
+    def test_save_uses_the_configured_newline_for_a_file_without_line_endings(self, tmp_path):
+        source = tmp_path / "module.py"
+        source.write_bytes(b"old")
 
         editor = self._editor(tmp_path, newline="\r\n")
         with editor.edited_file_context("module.py") as edited:

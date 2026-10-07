@@ -94,7 +94,23 @@ class CodeEditor(Generic[TSymbol], ABC):
     def _save_edited_file(self, edited_file: "CodeEditor.EditedFile") -> None:
         abs_path = os.path.join(self.project_root, edited_file.relative_path)
         new_contents = edited_file.get_contents()
-        write_file_atomic(abs_path, new_contents, encoding=self.encoding, newline=self.newline)
+        write_file_atomic(abs_path, new_contents, encoding=self.encoding, newline=self._newline_of_file(abs_path))
+
+    def _newline_of_file(self, abs_path: str) -> str | None:
+        """
+        :return: the line ending the file at the given path already uses, such that an edit does not rewrite
+            every line of it; the configured line ending if the file does not exist or has no line endings yet.
+        """
+        try:
+            with open(abs_path, "rb") as f:
+                existing = f.read()
+        except FileNotFoundError:
+            return self.newline
+        if b"\r\n" in existing:
+            return "\r\n"
+        if b"\n" in existing:
+            return "\n"
+        return self.newline
 
     @abstractmethod
     def _find_unique_symbol(self, name_path: str, relative_file_path: str) -> TSymbol:
