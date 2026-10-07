@@ -137,7 +137,7 @@ class LSPFileBuffer:
                         LSPConstants.URI: self.uri,
                         LSPConstants.LANGUAGE_ID: self.language_id,
                         LSPConstants.VERSION: self.version,
-                        LSPConstants.TEXT: current_contents,
+                        LSPConstants.TEXT: self._to_disk_line_endings(current_contents),
                     }
                 }
             )
@@ -159,11 +159,23 @@ class LSPFileBuffer:
                         },
                         LSPConstants.CONTENT_CHANGES: [
                             {
-                                LSPConstants.TEXT: current_contents,
+                                LSPConstants.TEXT: self._to_disk_line_endings(current_contents),
                             }
                         ],
                     }
                 )
+
+    def _to_disk_line_endings(self, contents: str) -> str:
+        """
+        Restores the line endings the file has on disk in the given contents (which use LF only).
+
+        Language servers that delegate to a tool reading the file from disk (e.g. Haxe, where the
+        compiler is given a byte offset computed from the text of the open document) resolve positions
+        to the wrong place if the text they were sent differs from the file in the length of its line endings.
+        """
+        with open(self.abs_path, "rb") as f:
+            is_crlf = b"\r\n" in f.read()
+        return contents.replace("\n", "\r\n") if is_crlf else contents
 
     def close(self) -> None:
         if self._is_open_in_ls:

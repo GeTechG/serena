@@ -63,3 +63,14 @@ def test_reopen_without_disk_change_sends_nothing(tmp_path) -> None:
 
     notify.did_change_text_document.assert_not_called()
     assert buffer.version == 0
+
+
+def test_text_sent_to_ls_keeps_line_endings_of_file_on_disk(tmp_path) -> None:
+    notify = MagicMock()
+    buffer = _buffer(tmp_path, notify)
+    buffer.abs_path.write_bytes(b"x = 4\r\ny = 5\r\n")
+    _bump_mtime(buffer.abs_path)
+    buffer.ensure_open_in_ls()
+
+    assert buffer.contents == "x = 4\ny = 5\n"
+    assert notify.did_change_text_document.call_args.args[0]["contentChanges"] == [{"text": "x = 4\r\ny = 5\r\n"}]
