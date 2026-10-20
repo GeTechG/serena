@@ -1,10 +1,13 @@
+import logging
 import os
 from collections.abc import Sequence
 
 import pytest
 
 from solidlsp import SolidLanguageServer
+from solidlsp.ls import DocumentSymbols, LSPFileBuffer
 from solidlsp.ls_config import LanguageServerId
+from solidlsp.ls_exceptions import SolidLSPException
 from solidlsp.ls_utils import SymbolUtils
 from test.conftest import PYTHON_LANGUAGE_BACKENDS, start_ls_context
 
@@ -76,3 +79,34 @@ class TestLanguageServerCommonFunctionality:
             # test that explicit requests for symbols in other workspace folders are rejected
             with pytest.raises(ValueError, match="outside"):
                 ls.request_full_symbol_tree(within_relative_path="./test_repo")
+
+    def test_full_symbol_tree_skips_file_without_document_symbols(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """
+        Tests that a file for which the server fails to provide document symbols is left out of the full symbol tree
+        instead of failing the whole traversal, while a request for symbols in that file alone still fails.
+        """
+        failing_file = os.path.join("test_repo", "models.py")
+
+        with start_ls_context(ls_id=LanguageServerId.PYTHON) as ls:
+            request_document_symbols = ls.request_document_symbols
+
+            def request_document_symbols_failing_for_one_file(
+                relative_file_path: str, file_buffer: LSPFileBuffer | None = None
+            ) -> DocumentSymbols:
+                if os.path.normpath(relative_file_path) == failing_file:
+                    raise SolidLSPException("Unable to build token tree")
+                return request_document_symbols(relative_file_path, file_buffer)
+
+            monkeypatch.setattr(ls, "request_document_symbols", request_document_symbols_failing_for_one_file)
+
+            with caplog.at_level(logging.WARNING, logger="solidlsp.ls"):
+                symbols = ls.request_full_symbol_tree()
+            assert SymbolUtils.symbol_tree_contains_name(symbols, "UserService")  # declared in test_repo/services.py
+            assert not SymbolUtils.symbol_tree_contains_name(symbols, "BaseModel")  # declared in test_repo/models.py
+
+            with pytest.raises(SolidLSPException):
+                ls.request_full_symbol_tree(within_relative_path=failing_file)
+
+        assert any("models.py" in r.getMessage() and "Unable to build token tree" in r.getMessage() for r in caplog.records)

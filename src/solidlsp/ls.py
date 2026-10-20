@@ -2189,7 +2189,16 @@ class SolidLanguageServer(ABC):
 
                 elif os.path.isfile(contained_dir_or_file_abs_path):
                     with self._open_file_context(contained_dir_or_file_rel_path, open_in_ls=False) as file_data:
-                        document_symbols = self.request_document_symbols(contained_dir_or_file_rel_path, file_data)
+                        try:
+                            document_symbols = self.request_document_symbols(contained_dir_or_file_rel_path, file_data)
+                        except SolidLSPException as ex:
+                            # Termination must propagate so tools_base can restart the LS and retry.
+                            # A file the server cannot provide symbols for (e.g. one it fails to parse)
+                            # is left out of the tree instead of failing the traversal of everything else.
+                            if ex.is_language_server_terminated():
+                                raise
+                            log.warning("Skipping file %s: could not retrieve its document symbols: %s", file_data.uri, ex)
+                            continue
 
                         # create shallow copies of the document root symbols to avoid modifying the cached symbols
                         # when linking them to the file symbol #2126
